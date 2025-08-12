@@ -62,7 +62,8 @@ def message(message: str,
             logo: Optional[str] = None,
             seed: Optional[Union[int, str]] = 88,
             key: Optional[str] = None,
-            partial: Optional[bool] = False):
+            partial: Optional[bool] = False,
+            rich_content: Optional[bool] = True):
     """
     Creates a new instance of streamlit-chat component
 
@@ -89,13 +90,141 @@ def message(message: str,
     partial: bool or None
         Indicates that the message is partial, and will be updated later (for
         example, if the message is being streamed).
+    rich_content: bool or None
+        When True, render content as rich Markdown (with LaTeX, tables, code highlighting).
+        When False, render as plain text for fastest incremental updates.
 
     Returns: None
     """
     if logo:
-        _st_chat_message(message=message, seed=seed, isUser=is_user, logo=logo, key=key)
+        _st_chat_message(
+            message=message,
+            seed=seed,
+            isUser=is_user,
+            logo=logo,
+            key=key,
+            partial=partial,
+            richContent=rich_content,
+        )
     else:
         if not avatar_style:
             avatar_style = "fun-emoji" if is_user else "bottts"
-        _st_chat_message(message=message, seed=seed, isUser=is_user, avatarStyle=avatar_style, key=key, partial=partial)
+        _st_chat_message(
+            message=message,
+            seed=seed,
+            isUser=is_user,
+            avatarStyle=avatar_style,
+            key=key,
+            partial=partial,
+            richContent=rich_content,
+        )
+
+
+from typing import Iterable  # noqa: E402
+import time  # noqa: E402
+
+def message_stream(
+    chunks: "Iterable[str]",
+    *,
+    is_user: Optional[bool] = False,
+    avatar_style: Optional[AvatarStyle] = None,
+    logo: Optional[str] = None,
+    seed: Optional[Union[int, str]] = 88,
+    key: Optional[str] = None,
+    rich_content: Optional[bool] = True,
+    throttle_ms: int = 0,
+    flush_every: int = 1,
+    initial_text: str = "",
+) -> str:
+    """Stream content to a single chat message, similar to Streamlit's docs helpers.
+
+    This helper consumes an iterator of string deltas and incrementally updates a
+    single chat message in-place by repeatedly calling `message(..., partial=True)`
+    with a stable `key`. On completion, it finalizes the message with
+    `partial=False` and returns the final text.
+
+    Parameters
+    ----------
+    chunks: Iterable[str]
+        An iterable/generator yielding text deltas to append.
+    is_user: bool
+        Whether to render as a user message.
+    avatar_style: AvatarStyle or None
+        Avatar style when not providing a logo.
+    logo: str or None
+        URL/path for a custom logo image, bypassing avatar style.
+    seed: int | str
+        Seed for avatar generation.
+    key: str or None
+        Stable Streamlit component key for in-place updates. Strongly recommended.
+    rich_content: bool
+        Use Markdown rendering (True) or plain text (False) for speed.
+    throttle_ms: int
+        Minimum milliseconds between UI updates (0 to update every eligible chunk).
+    flush_every: int
+        Emit an update every N chunks to reduce re-render frequency (default 1).
+    initial_text: str
+        Optional initial text to seed the message with before streaming.
+
+    Returns
+    -------
+    str
+        The final accumulated text.
+    """
+    accumulated_text = initial_text or ""
+    last_emit_ts = 0.0
+    chunks_since_emit = 0
+
+    # Ensure an initial render so the placeholder appears quickly
+    message(
+        accumulated_text,
+        is_user=is_user,
+        avatar_style=avatar_style,
+        logo=logo,
+        seed=seed,
+        key=key,
+        partial=True,
+        rich_content=rich_content,
+    )
+
+    for delta in chunks:
+        if delta is None:
+            continue
+        if not isinstance(delta, str):
+            delta = str(delta)
+        if not delta:
+            continue
+
+        accumulated_text += delta
+        chunks_since_emit += 1
+
+        now = time.monotonic()
+        should_flush_count = flush_every > 0 and (chunks_since_emit % flush_every == 0)
+        should_flush_time = throttle_ms <= 0 or ((now - last_emit_ts) * 1000.0 >= throttle_ms)
+        if should_flush_count and should_flush_time:
+            message(
+                accumulated_text,
+                is_user=is_user,
+                avatar_style=avatar_style,
+                logo=logo,
+                seed=seed,
+                key=key,
+                partial=True,
+                rich_content=rich_content,
+            )
+            last_emit_ts = now
+
+    # Finalize message
+    message(
+        accumulated_text,
+        is_user=is_user,
+        avatar_style=avatar_style,
+        logo=logo,
+        seed=seed,
+        key=key,
+        partial=False,
+        rich_content=rich_content,
+    )
+
+    return accumulated_text
 

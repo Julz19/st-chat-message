@@ -40,6 +40,7 @@ I can also display tabular data.
 if "n_chars" not in st.session_state:
     st.session_state.n_chars = 1
 
+# Prefer the new generator-based helper in generator_streaming.py
 message(msg1[:st.session_state.n_chars], partial=st.session_state.n_chars < len(msg1), key="message_1")
 
 # Simulate streaming
